@@ -1,4 +1,6 @@
-# Farmer Market
+<p align="center">
+  <img src="./assets/header.svg" alt="Farmer Market" width="100%" />
+</p>
 
 A mobile marketplace where farmers sell their produce directly to customers.
 
