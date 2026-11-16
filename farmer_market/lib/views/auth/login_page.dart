@@ -1,9 +1,11 @@
-import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:provider/provider.dart';
-import 'register_page.dart';
-import 'auth_gate.dart';
+
 import '../../core/theme/theme_provider.dart';
+import '../../core/utils/auth_errors.dart';
+import '../../core/utils/validators.dart';
+import 'register_page.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -13,57 +15,56 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
+  final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _isLoading = false;
+  bool _obscurePassword = true;
+  AutovalidateMode _autovalidate = AutovalidateMode.disabled;
 
   Future<void> _login() async {
-    final email = _emailController.text.trim();
-    final password = _passwordController.text.trim();
-
-    if (email.isEmpty || password.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('E-posta ve şifre boş olamaz!')),
-      );
+    if (!_formKey.currentState!.validate()) {
+      setState(() => _autovalidate = AutovalidateMode.onUserInteraction);
       return;
     }
 
     setState(() => _isLoading = true);
 
     try {
-      final credential = await FirebaseAuth.instance.signInWithEmailAndPassword(
-        email: email,
-        password: password,
+      // Başarılı girişte yönlendirme yapmıyoruz, AuthGate oturumu görüp
+      // rolüne göre doğru sayfayı açıyor
+      await FirebaseAuth.instance.signInWithEmailAndPassword(
+        email: _emailController.text.trim(),
+        password: _passwordController.text,
       );
-
-      if (credential.user != null && context.mounted) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const AuthGate()),
-        );
-      }
     } on FirebaseAuthException catch (e) {
-      String message = 'Giriş başarısız.';
-      if (e.code == 'user-not-found') {
-        message = 'Kullanıcı bulunamadı.';
-      } else if (e.code == 'wrong-password') {
-        message = 'Şifre hatalı.';
-      }
-
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('❗ $message')),
-        );
-      }
+      _showSnackBar(authErrorMessage(e));
     } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('⚠️ Hata: $e')),
-        );
-      }
+      _showSnackBar('Hata: $e');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  Future<void> _resetPassword() async {
+    final email = _emailController.text.trim();
+    if (validateEmail(email) != null) {
+      _showSnackBar('Önce e-posta adresinizi yazın.');
+      return;
+    }
+
+    try {
+      await FirebaseAuth.instance.setLanguageCode('tr');
+      await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
+      _showSnackBar('Şifre sıfırlama bağlantısı gönderildi: $email');
+    } on FirebaseAuthException catch (e) {
+      _showSnackBar(authErrorMessage(e));
+    }
+  }
+
+  void _showSnackBar(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
@@ -75,113 +76,120 @@ class _LoginPageState extends State<LoginPage> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
 
     return Scaffold(
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: isDark
-                ? [Colors.black, Colors.grey[900]!]
-                : [Colors.white, Colors.purple[50]!],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-          ),
-        ),
-        padding: const EdgeInsets.all(24),
-        child: Center(
-          child: SingleChildScrollView(
-            child: Column(
-              children: [
-                // Logo
-                Image.asset(
-                  'assets/images/logo.png',
-                  height: 120,
-                ),
-                const SizedBox(height: 24),
-                Text(
-                  'Farmer Market',
-                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Hoş geldiniz 👋',
-                  style: Theme.of(context).textTheme.bodyLarge,
-                ),
-                const SizedBox(height: 30),
-
-                // Giriş Formu
-                Card(
-                  elevation: 6,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
+      body: SafeArea(
+        child: Stack(
+          children: [
+            Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(24, 32, 24, 24),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 420),
+                  child: Form(
+                    key: _formKey,
+                    autovalidateMode: _autovalidate,
                     child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        TextField(
+                        // Logo
+                        Center(child: Image.asset('assets/images/logo.png', height: 136)),
+                        const SizedBox(height: 12),
+                        Text(
+                          'Farmer Market',
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.headlineMedium,
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Taze ürünler, doğrudan çiftçiden.',
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.bodyLarge?.copyWith(color: scheme.onSurfaceVariant),
+                        ),
+                        const SizedBox(height: 36),
+
+                        // Giriş formu
+                        TextFormField(
                           controller: _emailController,
                           keyboardType: TextInputType.emailAddress,
+                          autofillHints: const [AutofillHints.email],
+                          textInputAction: TextInputAction.next,
+                          validator: validateEmail,
                           decoration: const InputDecoration(
                             labelText: 'E-posta',
-                            prefixIcon: Icon(Icons.email_outlined),
-                            border: OutlineInputBorder(),
+                            prefixIcon: Icon(Icons.mail_outline),
                           ),
                         ),
-                        const SizedBox(height: 16),
-                        TextField(
+                        const SizedBox(height: 14),
+                        TextFormField(
                           controller: _passwordController,
-                          obscureText: true,
-                          decoration: const InputDecoration(
+                          obscureText: _obscurePassword,
+                          autofillHints: const [AutofillHints.password],
+                          textInputAction: TextInputAction.done,
+                          onFieldSubmitted: (_) => _isLoading ? null : _login(),
+                          validator: (v) => requiredField(v, message: 'Şifre gerekli'),
+                          decoration: InputDecoration(
                             labelText: 'Şifre',
-                            prefixIcon: Icon(Icons.lock_outline),
-                            border: OutlineInputBorder(),
+                            prefixIcon: const Icon(Icons.lock_outline),
+                            suffixIcon: IconButton(
+                              tooltip: _obscurePassword ? 'Şifreyi göster' : 'Şifreyi gizle',
+                              icon: Icon(_obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined),
+                              onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                            ),
                           ),
+                        ),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton(
+                            onPressed: _isLoading ? null : _resetPassword,
+                            child: const Text('Şifremi unuttum'),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        FilledButton(
+                          onPressed: _isLoading ? null : _login,
+                          child: _isLoading
+                              ? const SizedBox(
+                                  width: 22,
+                                  height: 22,
+                                  child: CircularProgressIndicator(strokeWidth: 2.5),
+                                )
+                              : const Text('Giriş Yap'),
                         ),
                         const SizedBox(height: 24),
-                        SizedBox(
-                          width: double.infinity,
-                          height: 48,
-                          child: ElevatedButton(
-                            onPressed: _isLoading ? null : _login,
-                            style: ElevatedButton.styleFrom(
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                              backgroundColor: Theme.of(context).colorScheme.primary,
-                              foregroundColor: Colors.white,
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text('Hesabın yok mu?', style: theme.textTheme.bodyMedium),
+                            TextButton(
+                              onPressed: _isLoading
+                                  ? null
+                                  : () => Navigator.push(
+                                        context,
+                                        MaterialPageRoute(builder: (_) => const RegisterPage()),
+                                      ),
+                              child: const Text('Kayıt Ol'),
                             ),
-                            child: _isLoading
-                                ? const CircularProgressIndicator(color: Colors.white)
-                                : const Text('Giriş Yap', style: TextStyle(fontSize: 16)),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        TextButton(
-                          onPressed: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(builder: (_) => const RegisterPage()),
-                            );
-                          },
-                          child: const Text('Hesabın yok mu? Kayıt Ol'),
+                          ],
                         ),
                       ],
                     ),
                   ),
                 ),
-
-                const SizedBox(height: 20),
-                IconButton(
-                  onPressed: () {
-                    Provider.of<ThemeProvider>(context, listen: false).toggleTheme();
-                  },
-                  icon: const Icon(Icons.brightness_6),
-                  tooltip: 'Temayı Değiştir',
-                ),
-              ],
+              ),
             ),
-          ),
+            Positioned(
+              top: 4,
+              right: 4,
+              child: IconButton(
+                onPressed: () => context.read<ThemeProvider>().toggleTheme(),
+                icon: Icon(theme.brightness == Brightness.dark ? Icons.light_mode_outlined : Icons.dark_mode_outlined),
+                tooltip: 'Temayı Değiştir',
+              ),
+            ),
+          ],
         ),
       ),
     );

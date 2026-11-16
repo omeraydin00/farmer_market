@@ -1,0 +1,34 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function role() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    // Profiller giriş yapan herkes tarafından okunabilir (ürün detayında çiftçi bilgisi için),
+    // ama sadece sahibi yazabilir ve rolünü sonradan değiştiremez.
+    match /users/{uid} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.auth.uid == uid
+        && request.resource.data.role in ['farmer', 'customer'];
+      allow update: if signedIn() && request.auth.uid == uid
+        && request.resource.data.role == resource.data.role;
+    }
+
+    // Ürünleri herkes görür, sadece ekleyen çiftçi düzenler veya siler.
+    match /products/{productId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && role() == 'farmer'
+        && request.resource.data.ownerId == request.auth.uid;
+      allow update: if signedIn() && resource.data.ownerId == request.auth.uid
+        && request.resource.data.ownerId == request.auth.uid;
+      allow delete: if signedIn() && resource.data.ownerId == request.auth.uid;
+    }
+  }
+}

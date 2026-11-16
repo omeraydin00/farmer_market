@@ -1,235 +1,174 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:provider/provider.dart';
+import 'package:material_ui/material_ui.dart';
+
+import '../../core/utils/formatters.dart';
+import '../../models/app_user.dart';
 import '../../models/product.dart';
-import '../auth/login_page.dart';
-import '../profile/profile_page.dart';
-import '../../views/product/product_detail_page.dart';
-import '../../core/theme/theme_provider.dart';
+import '../product/product_detail_page.dart';
+import '../widgets/empty_state.dart';
+import '../widgets/home_header.dart';
+import '../widgets/product_card.dart';
+import '../widgets/sort_chips.dart';
 
 class CustomerHomePage extends StatefulWidget {
-  const CustomerHomePage({super.key});
+  final AppUser user;
+
+  const CustomerHomePage({super.key, required this.user});
 
   @override
   State<CustomerHomePage> createState() => _CustomerHomePageState();
 }
 
 class _CustomerHomePageState extends State<CustomerHomePage> {
+  final _searchController = TextEditingController();
   String searchQuery = '';
-  String sortOption = 'Varsayılan';
+  ProductSort sortOption = ProductSort.varsayilan;
 
-  Stream<List<Product>> getProducts() {
-    return FirebaseFirestore.instance
-        .collection('products')
-        .snapshots()
-        .map((snapshot) => snapshot.docs
-        .map((doc) => Product.fromMap(doc.data(), doc.id))
-        .toList());
+  // Akış bir kere oluşturuluyor. Eskiden build içinde her seferinde yeni stream
+  // açılıyordu, aramaya her harf yazıldığında liste baştan yükleniyordu.
+  late final Stream<List<Product>> _productsStream = FirebaseFirestore.instance
+      .collection('products')
+      .snapshots()
+      .map((snapshot) => snapshot.docs.map((doc) => Product.fromMap(doc.data(), doc.id)).toList());
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  List<Product> _filter(List<Product> products) {
+    var result = products;
+    if (searchQuery.isNotEmpty) {
+      result = result.where((p) => trLower(p.name).contains(searchQuery)).toList();
+    }
+    return sortOption.apply(result);
   }
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final textColor = isDark ? Colors.white : Colors.black;
+    final theme = Theme.of(context);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Ürünler'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.brightness_6),
-            tooltip: 'Temayı Değiştir',
-            onPressed: () {
-              Provider.of<ThemeProvider>(context, listen: false).toggleTheme();
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.account_circle),
-            tooltip: 'Profil',
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const ProfilePage()),
-              );
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.logout),
-            tooltip: 'Çıkış Yap',
-            onPressed: () async {
-              await FirebaseAuth.instance.signOut();
-              if (context.mounted) {
-                Navigator.pushAndRemoveUntil(
-                  context,
-                  MaterialPageRoute(builder: (_) => const LoginPage()),
-                      (route) => false,
-                );
-              }
-            },
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    decoration: const InputDecoration(
-                      hintText: 'Ürün ara...',
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.search),
-                    ),
-                    onChanged: (value) {
-                      setState(() {
-                        searchQuery = value.toLowerCase();
-                      });
-                    },
+      body: SafeArea(
+        bottom: false,
+        child: StreamBuilder<List<Product>>(
+          stream: _productsStream,
+          builder: (context, snapshot) {
+            return CustomScrollView(
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              slivers: [
+                SliverToBoxAdapter(
+                  child: HomeHeader(
+                    user: widget.user,
+                    title: 'Bugün taze ne var?',
                   ),
                 ),
-                const SizedBox(width: 12),
-                DropdownButton<String>(
-                  value: sortOption,
-                  items: const [
-                    DropdownMenuItem(
-                      value: 'Varsayılan',
-                      child: Text('Varsayılan'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'Artan',
-                      child: Text('Fiyat: Artan'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'Azalan',
-                      child: Text('Fiyat: Azalan'),
-                    ),
-                  ],
-                  onChanged: (value) {
-                    if (value != null) {
-                      setState(() {
-                        sortOption = value;
-                      });
-                    }
-                  },
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: StreamBuilder<List<Product>>(
-              stream: getProducts(),
-              builder: (context, snapshot) {
-                if (snapshot.hasError) {
-                  return const Center(child: Text("Bir hata oluştu"));
-                }
-                if (!snapshot.hasData) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-
-                List<Product> products = snapshot.data!;
-
-                if (searchQuery.isNotEmpty) {
-                  products = products
-                      .where((p) => p.name.toLowerCase().contains(searchQuery))
-                      .toList();
-                }
-
-                if (sortOption == 'Artan') {
-                  products.sort((a, b) => a.price.compareTo(b.price));
-                } else if (sortOption == 'Azalan') {
-                  products.sort((a, b) => b.price.compareTo(a.price));
-                }
-
-                if (products.isEmpty) {
-                  return const Center(child: Text("Eşleşen ürün bulunamadı"));
-                }
-
-                return ListView.separated(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: products.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 12),
-                  itemBuilder: (context, index) {
-                    final p = products[index];
-
-                    return GestureDetector(
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => ProductDetailPage(product: p),
-                          ),
-                        );
-                      },
-                      child: Card(
-                        elevation: 3,
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12)),
-                        child: Padding(
-                          padding: const EdgeInsets.all(12),
-                          child: Row(
-                            children: [
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(8),
-                                child: p.imageUrl != null
-                                    ? Image.network(
-                                  p.imageUrl!,
-                                  width: 80,
-                                  height: 80,
-                                  fit: BoxFit.cover,
-                                )
-                                    : Container(
-                                  width: 80,
-                                  height: 80,
-                                  color: Colors.grey[300],
-                                  child: const Icon(Icons.image_not_supported),
-                                ),
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                    child: TextField(
+                      controller: _searchController,
+                      textInputAction: TextInputAction.search,
+                      decoration: InputDecoration(
+                        hintText: 'Domates, biber, çilek...',
+                        prefixIcon: const Icon(Icons.search),
+                        suffixIcon: searchQuery.isEmpty
+                            ? null
+                            : IconButton(
+                                tooltip: 'Temizle',
+                                icon: const Icon(Icons.close),
+                                onPressed: () {
+                                  _searchController.clear();
+                                  setState(() => searchQuery = '');
+                                },
                               ),
-                              const SizedBox(width: 16),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      p.name,
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .titleMedium
-                                          ?.copyWith(color: textColor),
-                                    ),
-                                    const SizedBox(height: 6),
-                                    Text(
-                                      "${p.price.toStringAsFixed(2)} ₺",
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .bodyLarge
-                                          ?.copyWith(color: textColor),
-                                    ),
-                                    const SizedBox(height: 6),
-                                    Text(
-                                      "Stok: ${p.stockKg} kg",
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .bodySmall
-                                          ?.copyWith(color: textColor),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
                       ),
-                    );
-                  },
-                );
-              },
-            ),
-          ),
-        ],
+                      onChanged: (value) => setState(() => searchQuery = trLower(value.trim())),
+                    ),
+                  ),
+                ),
+                SliverToBoxAdapter(
+                  child: SortChips(
+                    value: sortOption,
+                    onChanged: (value) => setState(() => sortOption = value),
+                  ),
+                ),
+                ..._buildProducts(context, snapshot, theme),
+              ],
+            );
+          },
+        ),
       ),
     );
+  }
+
+  List<Widget> _buildProducts(BuildContext context, AsyncSnapshot<List<Product>> snapshot, ThemeData theme) {
+    if (snapshot.hasError) {
+      return const [
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: EmptyState(icon: Icons.cloud_off_outlined, text: 'Ürünler yüklenemedi'),
+        ),
+      ];
+    }
+    if (!snapshot.hasData) {
+      return const [
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: Center(child: CircularProgressIndicator()),
+        ),
+      ];
+    }
+
+    final products = _filter(snapshot.data!);
+
+    if (products.isEmpty) {
+      return [
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: EmptyState(
+            icon: Icons.search_off,
+            text: snapshot.data!.isEmpty ? 'Henüz ürün eklenmemiş' : 'Eşleşen ürün bulunamadı',
+          ),
+        ),
+      ];
+    }
+
+    return [
+      SliverPadding(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+        sliver: SliverToBoxAdapter(
+          child: Text(
+            '${products.length} ürün',
+            style: theme.textTheme.labelLarge?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+          ),
+        ),
+      ),
+      SliverPadding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+        sliver: SliverGrid.builder(
+          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+            maxCrossAxisExtent: 240,
+            mainAxisExtent: 246,
+            mainAxisSpacing: 12,
+            crossAxisSpacing: 12,
+          ),
+          itemCount: products.length,
+          itemBuilder: (context, index) {
+            final p = products[index];
+            return ProductCard(
+              product: p,
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => ProductDetailPage(product: p, viewer: widget.user),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    ];
   }
 }

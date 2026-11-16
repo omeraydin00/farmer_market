@@ -1,158 +1,43 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
-class AddProductPage extends StatefulWidget {
-  const AddProductPage({super.key});
+import '../../models/app_user.dart';
+import 'product_form.dart';
 
-  @override
-  State<AddProductPage> createState() => _AddProductPageState();
-}
+class AddProductPage extends StatelessWidget {
+  final AppUser user;
 
-class _AddProductPageState extends State<AddProductPage> {
-  final _nameController = TextEditingController();
-  final _priceController = TextEditingController();
-  final _imageUrlController = TextEditingController();
-  final _descriptionController = TextEditingController();
-  final _phoneController = TextEditingController();
-  final _stockKgController = TextEditingController();
-  bool _isSaving = false;
+  const AddProductPage({super.key, required this.user});
 
-  Future<void> _addProduct() async {
-    final name = _nameController.text.trim();
-    final price = double.tryParse(_priceController.text.trim()) ?? 0.0;
-    final imageUrl = _imageUrlController.text.trim();
-    final description = _descriptionController.text.trim();
-    final phone = _phoneController.text.trim();
-    final stockKg = int.tryParse(_stockKgController.text.trim()) ?? 0;
-
-    if (name.isEmpty || price <= 0 || imageUrl.isEmpty || phone.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Tüm alanları doldurun.')),
-      );
-      return;
-    }
-
-    setState(() => _isSaving = true);
+  Future<void> _addProduct(BuildContext context, ProductFormValues values) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
 
     try {
       await FirebaseFirestore.instance.collection('products').add({
-        'name': name,
-        'price': price,
-        'imageUrl': imageUrl,
-        'description': description,
-        'sellerPhone': phone,
-        'stockKg': stockKg,
+        ...values.toMap(),
+        // Ürünün sahibi ve müşteriye gösterilecek çiftçi bilgisi
+        'ownerId': user.uid,
+        'sellerName': user.displayName,
+        'sellerLocation': user.location,
         'createdAt': FieldValue.serverTimestamp(),
       });
 
-      if (!context.mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('✅ Ürün başarıyla eklendi!')),
-      );
-
-      Navigator.pop(context);
+      messenger.showSnackBar(SnackBar(content: Text('${values.name} satışa eklendi')));
+      navigator.pop();
     } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('⚠️ Hata oluştu: $e')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isSaving = false);
+      messenger.showSnackBar(SnackBar(content: Text('Ürün eklenemedi: $e')));
     }
-  }
-
-  @override
-  void dispose() {
-    _nameController.dispose();
-    _priceController.dispose();
-    _imageUrlController.dispose();
-    _descriptionController.dispose();
-    _phoneController.dispose();
-    _stockKgController.dispose();
-    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Yeni Ürün Ekle')),
-      body: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          children: [
-            TextField(
-              controller: _nameController,
-              decoration: const InputDecoration(
-                labelText: 'Ürün Adı',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.shopping_bag),
-              ),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _priceController,
-              keyboardType: TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(
-                labelText: 'Fiyat (₺)',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.attach_money),
-              ),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _imageUrlController,
-              decoration: const InputDecoration(
-                labelText: 'Resim URL',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.image),
-              ),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _descriptionController,
-              maxLines: 2,
-              decoration: const InputDecoration(
-                labelText: 'Açıklama',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.description),
-              ),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _phoneController,
-              keyboardType: TextInputType.phone,
-              decoration: const InputDecoration(
-                labelText: 'Telefon Numarası',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.phone),
-              ),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _stockKgController,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: 'Stok (kg)',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.scale),
-              ),
-            ),
-            const SizedBox(height: 24),
-            ElevatedButton.icon(
-              icon: _isSaving
-                  ? const SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-              )
-                  : const Icon(Icons.save),
-              label: Text(_isSaving ? 'Kaydediliyor...' : 'Ürünü Kaydet'),
-              onPressed: _isSaving ? null : _addProduct,
-            ),
-          ],
-        ),
+      body: ProductForm(
+        defaultPhone: user.phone,
+        submitLabel: 'Ürünü Kaydet',
+        onSubmit: (values) => _addProduct(context, values),
       ),
     );
   }

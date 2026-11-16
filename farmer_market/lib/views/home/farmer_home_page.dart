@@ -1,289 +1,437 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:provider/provider.dart';
+import 'package:material_ui/material_ui.dart';
+
+import '../../core/utils/formatters.dart';
+import '../../models/app_user.dart';
 import '../../models/product.dart';
 import '../product/add_product_page.dart';
-import '../auth/login_page.dart';
-import '../profile/profile_page.dart';
-import '../../views/product/edit_product_page.dart';
-import '../../views/product/product_detail_page.dart';
-import '../../core/theme/theme_provider.dart';
+import '../product/edit_product_page.dart';
+import '../product/product_detail_page.dart';
+import '../widgets/empty_state.dart';
+import '../widgets/home_header.dart';
+import '../widgets/product_image.dart';
+import '../widgets/sort_chips.dart';
+import '../widgets/stock_badge.dart';
 
 class FarmerHomePage extends StatefulWidget {
-  const FarmerHomePage({super.key});
+  final AppUser user;
+
+  const FarmerHomePage({super.key, required this.user});
 
   @override
   State<FarmerHomePage> createState() => _FarmerHomePageState();
 }
 
 class _FarmerHomePageState extends State<FarmerHomePage> {
+  final _searchController = TextEditingController();
   String searchQuery = '';
-  String sortOption = 'Varsayılan';
+  ProductSort sortOption = ProductSort.varsayilan;
 
-  Stream<List<Product>> getProducts() {
-    return FirebaseFirestore.instance
-        .collection('products')
-        .snapshots()
-        .map((snapshot) => snapshot.docs
-        .map((doc) => Product.fromMap(doc.data(), doc.id))
-        .toList());
+  // Panelde sadece bu çiftçinin ürünleri. Önceden bütün ürünler listeleniyordu,
+  // bir çiftçi başkasının ürününü düzenleyip silebiliyordu.
+  late final Stream<List<Product>> _productsStream = FirebaseFirestore.instance
+      .collection('products')
+      .where('ownerId', isEqualTo: widget.user.uid)
+      .snapshots()
+      .map((snapshot) => snapshot.docs.map((doc) => Product.fromMap(doc.data(), doc.id)).toList());
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
-  Future<void> _signOut(BuildContext context) async {
-    await FirebaseAuth.instance.signOut();
-    if (context.mounted) {
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(builder: (_) => const LoginPage()),
-            (route) => false,
-      );
+  void _openAddProduct() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => AddProductPage(user: widget.user)),
+    );
+  }
+
+  Future<void> _deleteProduct(Product p) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Ürünü Sil'),
+        content: Text('"${p.name}" ürününü silmek istediğinizden emin misiniz?'),
+        actions: [
+          TextButton(
+            child: const Text('İptal'),
+            onPressed: () => Navigator.pop(context, false),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+              foregroundColor: Theme.of(context).colorScheme.onError,
+              minimumSize: const Size(88, 44),
+            ),
+            child: const Text('Sil'),
+            onPressed: () => Navigator.pop(context, true),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    try {
+      await FirebaseFirestore.instance.collection('products').doc(p.id).delete();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${p.name} silindi')));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Silinemedi: $e')));
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final textColor = isDark ? Colors.white : Colors.black;
-
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Çiftçi Ürün Paneli'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.brightness_6),
-            tooltip: 'Temayı Değiştir',
-            onPressed: () {
-              Provider.of<ThemeProvider>(context, listen: false).toggleTheme();
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.account_circle),
-            tooltip: 'Profil',
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const ProfilePage()),
-              );
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.logout),
-            tooltip: 'Çıkış Yap',
-            onPressed: () => _signOut(context),
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    decoration: InputDecoration(
-                      hintText: 'Ürün ara...',
-                      hintStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey),
-                      border: const OutlineInputBorder(),
-                      prefixIcon: const Icon(Icons.search),
-                    ),
-                    style: Theme.of(context).textTheme.bodyMedium,
-                    onChanged: (value) {
-                      setState(() {
-                        searchQuery = value.toLowerCase();
-                      });
-                    },
-                  ),
+      body: SafeArea(
+        bottom: false,
+        child: StreamBuilder<List<Product>>(
+          stream: _productsStream,
+          builder: (context, snapshot) {
+            final all = snapshot.data ?? const <Product>[];
+
+            return CustomScrollView(
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              slivers: [
+                SliverToBoxAdapter(
+                  child: HomeHeader(user: widget.user, title: 'Ürünlerim'),
                 ),
-                const SizedBox(width: 12),
-                DropdownButton<String>(
-                  value: sortOption,
-                  dropdownColor: Theme.of(context).cardColor,
-                  style: Theme.of(context).textTheme.bodyMedium,
-                  items: const [
-                    DropdownMenuItem(
-                      value: 'Varsayılan',
-                      child: Text('Varsayılan'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'Artan',
-                      child: Text('Fiyat: Artan'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'Azalan',
-                      child: Text('Fiyat: Azalan'),
-                    ),
-                  ],
-                  onChanged: (value) {
-                    if (value != null) {
-                      setState(() {
-                        sortOption = value;
-                      });
-                    }
-                  },
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: StreamBuilder<List<Product>>(
-              stream: getProducts(),
-              builder: (context, snapshot) {
-                if (snapshot.hasError) {
-                  return const Center(child: Text("Bir hata oluştu"));
-                }
-                if (!snapshot.hasData) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-
-                List<Product> products = snapshot.data!;
-
-                if (searchQuery.isNotEmpty) {
-                  products = products.where((p) => p.name.toLowerCase().contains(searchQuery)).toList();
-                }
-
-                if (sortOption == 'Artan') {
-                  products.sort((a, b) => a.price.compareTo(b.price));
-                } else if (sortOption == 'Azalan') {
-                  products.sort((a, b) => b.price.compareTo(a.price));
-                }
-
-                if (products.isEmpty) {
-                  return const Center(child: Text("Eşleşen ürün bulunamadı"));
-                }
-
-                return ListView.separated(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: products.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 12),
-                  itemBuilder: (context, index) {
-                    final p = products[index];
-
-                    return GestureDetector(
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => ProductDetailPage(product: p),
-                          ),
-                        );
-                      },
-                      child: Card(
-                        elevation: 3,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        child: Padding(
-                          padding: const EdgeInsets.all(12),
-                          child: Row(
-                            children: [
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(8),
-                                child: p.imageUrl != null
-                                    ? Image.network(
-                                  p.imageUrl!,
-                                  width: 80,
-                                  height: 80,
-                                  fit: BoxFit.cover,
-                                )
-                                    : Container(
-                                  width: 80,
-                                  height: 80,
-                                  color: Colors.grey[300],
-                                  child: const Icon(Icons.image_not_supported),
-                                ),
-                              ),
-                              const SizedBox(width: 16),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      p.name,
-                                      style: Theme.of(context).textTheme.titleMedium?.copyWith(color: textColor),
-                                    ),
-                                    const SizedBox(height: 6),
-                                    Text(
-                                      "${p.price.toStringAsFixed(2)} ₺",
-                                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(color: textColor),
-                                    ),
-                                    const SizedBox(height: 6),
-                                    Text(
-                                      "Stok: ${p.stockKg} kg",
-                                      style: Theme.of(context).textTheme.bodySmall?.copyWith(color: textColor),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              Column(
-                                children: [
-                                  IconButton(
-                                    icon: const Icon(Icons.edit, color: Colors.blue),
-                                    tooltip: 'Düzenle',
+                if (snapshot.hasData) ...[
+                  SliverToBoxAdapter(child: _Summary(products: all)),
+                  if (all.isNotEmpty) ...[
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+                        child: TextField(
+                          controller: _searchController,
+                          decoration: InputDecoration(
+                            hintText: 'Ürünlerimde ara...',
+                            prefixIcon: const Icon(Icons.search),
+                            suffixIcon: searchQuery.isEmpty
+                                ? null
+                                : IconButton(
+                                    tooltip: 'Temizle',
+                                    icon: const Icon(Icons.close),
                                     onPressed: () {
-                                      Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (_) => EditProductPage(
-                                            productId: p.id,
-                                            initialName: p.name,
-                                            initialPrice: p.price,
-                                          ),
-                                        ),
-                                      );
+                                      _searchController.clear();
+                                      setState(() => searchQuery = '');
                                     },
                                   ),
-                                  IconButton(
-                                    icon: const Icon(Icons.delete, color: Colors.red),
-                                    tooltip: 'Sil',
-                                    onPressed: () async {
-                                      final confirm = await showDialog<bool>(
-                                        context: context,
-                                        builder: (context) => AlertDialog(
-                                          title: const Text('Ürünü Sil'),
-                                          content: const Text('Bu ürünü silmek istediğinizden emin misiniz?'),
-                                          actions: [
-                                            TextButton(
-                                              child: const Text('İptal'),
-                                              onPressed: () => Navigator.pop(context, false),
-                                            ),
-                                            TextButton(
-                                              child: const Text('Sil'),
-                                              onPressed: () => Navigator.pop(context, true),
-                                            ),
-                                          ],
-                                        ),
-                                      );
-
-                                      if (confirm == true) {
-                                        await FirebaseFirestore.instance
-                                            .collection('products')
-                                            .doc(p.id)
-                                            .delete();
-                                      }
-                                    },
-                                  ),
-                                ],
-                              ),
-                            ],
                           ),
+                          onChanged: (value) => setState(() => searchQuery = trLower(value.trim())),
                         ),
                       ),
-                    );
-                  },
-                );
-              },
+                    ),
+                    SliverToBoxAdapter(
+                      child: SortChips(
+                        value: sortOption,
+                        onChanged: (value) => setState(() => sortOption = value),
+                      ),
+                    ),
+                  ],
+                ],
+                ..._buildList(snapshot),
+              ],
+            );
+          },
+        ),
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _openAddProduct,
+        icon: const Icon(Icons.add),
+        label: const Text('Ürün Ekle'),
+      ),
+    );
+  }
+
+  List<Widget> _buildList(AsyncSnapshot<List<Product>> snapshot) {
+    if (snapshot.hasError) {
+      return const [
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: EmptyState(icon: Icons.cloud_off_outlined, text: 'Ürünler yüklenemedi'),
+        ),
+      ];
+    }
+    if (!snapshot.hasData) {
+      return const [
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: Center(child: CircularProgressIndicator()),
+        ),
+      ];
+    }
+
+    if (snapshot.data!.isEmpty) {
+      return [
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: EmptyState(
+            icon: Icons.eco_outlined,
+            text: 'Henüz ürün eklemediniz.\nİlk ürününüzü ekleyerek satışa başlayın.',
+            action: FilledButton.tonalIcon(
+              style: FilledButton.styleFrom(minimumSize: const Size(0, 48)),
+              onPressed: _openAddProduct,
+              icon: const Icon(Icons.add),
+              label: const Text('Ürün Ekle'),
             ),
           ),
+        ),
+      ];
+    }
+
+    var products = snapshot.data!;
+    if (searchQuery.isNotEmpty) {
+      products = products.where((p) => trLower(p.name).contains(searchQuery)).toList();
+    }
+    products = sortOption.apply(products);
+
+    if (products.isEmpty) {
+      return const [
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: EmptyState(icon: Icons.search_off, text: 'Eşleşen ürün bulunamadı'),
+        ),
+      ];
+    }
+
+    return [
+      SliverPadding(
+        // FAB son kartın üstüne binmesin
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+        sliver: SliverList.separated(
+          itemCount: products.length,
+          separatorBuilder: (_, _) => const SizedBox(height: 12),
+          itemBuilder: (context, index) {
+            final p = products[index];
+            return _FarmerProductTile(
+              product: p,
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => ProductDetailPage(product: p, viewer: widget.user)),
+              ),
+              onEdit: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => EditProductPage(product: p, user: widget.user)),
+              ),
+              onDelete: () => _deleteProduct(p),
+            );
+          },
+        ),
+      ),
+    ];
+  }
+}
+
+/// Ürün sayısı, toplam stok ve azalan ürünler
+class _Summary extends StatelessWidget {
+  final List<Product> products;
+
+  const _Summary({required this.products});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final totalKg = products.fold<int>(0, (total, p) => total + p.stockKg);
+    final needsAttention = products.where((p) => p.isLowStock || p.isOutOfStock).length;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: _SummaryTile(
+                  icon: Icons.storefront_outlined,
+                  value: '${products.length}',
+                  label: 'Ürün',
+                  color: scheme.primaryContainer,
+                  onColor: scheme.onPrimaryContainer,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _SummaryTile(
+                  icon: Icons.inventory_2_outlined,
+                  value: '$totalKg',
+                  label: 'kg stok',
+                  color: scheme.secondaryContainer,
+                  onColor: scheme.onSecondaryContainer,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _SummaryTile(
+                  icon: Icons.trending_down,
+                  value: '$needsAttention',
+                  label: 'Az kalan',
+                  color: needsAttention > 0 ? scheme.tertiaryContainer : scheme.surfaceContainerHigh,
+                  onColor: needsAttention > 0 ? scheme.onTertiaryContainer : scheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+          if (needsAttention > 0) ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: scheme.tertiaryContainer.withValues(alpha: 0.45),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline, size: 20, color: scheme.tertiary),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      '$needsAttention üründe stok ${Product.lowStockKg} kg altına düştü. '
+                      'Stoğu güncellemeyi unutmayın.',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(color: scheme.onSurface),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ],
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const AddProductPage()),
-          );
-        },
-        child: const Icon(Icons.add),
+    );
+  }
+}
+
+class _SummaryTile extends StatelessWidget {
+  final IconData icon;
+  final String value;
+  final String label;
+  final Color color;
+  final Color onColor;
+
+  const _SummaryTile({
+    required this.icon,
+    required this.value,
+    required this.label,
+    required this.color,
+    required this.onColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(18)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 20, color: onColor),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: theme.textTheme.titleLarge?.copyWith(color: onColor, fontWeight: FontWeight.w800),
+          ),
+          Text(label, style: theme.textTheme.labelMedium?.copyWith(color: onColor)),
+        ],
+      ),
+    );
+  }
+}
+
+class _FarmerProductTile extends StatelessWidget {
+  final Product product;
+  final VoidCallback onTap;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  const _FarmerProductTile({
+    required this.product,
+    required this.onTap,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
+    return Card(
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(10, 10, 4, 10),
+          child: Row(
+            children: [
+              ProductImage(
+                url: product.imageUrl,
+                width: 84,
+                height: 84,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      product.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 2),
+                    Text.rich(
+                      TextSpan(
+                        children: [
+                          TextSpan(
+                            text: formatPrice(product.price),
+                            style: TextStyle(color: scheme.primary, fontWeight: FontWeight.w800),
+                          ),
+                          TextSpan(
+                            text: ' / kg',
+                            style: TextStyle(color: scheme.onSurfaceVariant),
+                          ),
+                        ],
+                      ),
+                      style: theme.textTheme.bodyLarge,
+                    ),
+                    const SizedBox(height: 8),
+                    StockBadge(product: product),
+                  ],
+                ),
+              ),
+              PopupMenuButton<String>(
+                tooltip: 'Seçenekler',
+                icon: const Icon(Icons.more_vert),
+                onSelected: (value) => value == 'edit' ? onEdit() : onDelete(),
+                itemBuilder: (context) => [
+                  const PopupMenuItem(
+                    value: 'edit',
+                    child: ListTile(
+                      leading: Icon(Icons.edit_outlined),
+                      title: Text('Düzenle'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: 'delete',
+                    child: ListTile(
+                      leading: Icon(Icons.delete_outline, color: scheme.error),
+                      title: Text('Sil', style: TextStyle(color: scheme.error)),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

@@ -1,75 +1,80 @@
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
-class ChangePasswordPage extends StatelessWidget {
+import '../../core/utils/auth_errors.dart';
+
+class ChangePasswordPage extends StatefulWidget {
   const ChangePasswordPage({super.key});
 
-  Future<void> _sendPasswordResetEmail(BuildContext context) async {
-    final user = FirebaseAuth.instance.currentUser;
+  @override
+  State<ChangePasswordPage> createState() => _ChangePasswordPageState();
+}
 
-    if (user?.email == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Kullanıcı e-postası alınamadı.')),
-      );
+class _ChangePasswordPageState extends State<ChangePasswordPage> {
+  bool _isSending = false;
+
+  Future<void> _sendPasswordResetEmail() async {
+    final email = FirebaseAuth.instance.currentUser?.email;
+
+    if (email == null) {
+      _showSnackBar('Kullanıcı e-postası alınamadı.');
       return;
     }
 
+    setState(() => _isSending = true);
     try {
-      FirebaseAuth.instance.setLanguageCode("tr");
-
-      await FirebaseAuth.instance.sendPasswordResetEmail(email: user!.email!);
-
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('📬 Şifre sıfırlama e-postası gönderildi: ${user.email}')),
-        );
-      }
+      await FirebaseAuth.instance.setLanguageCode('tr');
+      await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
+      _showSnackBar('Şifre sıfırlama e-postası gönderildi: $email');
+    } on FirebaseAuthException catch (e) {
+      _showSnackBar(authErrorMessage(e));
     } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('⚠️ Hata oluştu: $e')),
-        );
-      }
+      _showSnackBar('Hata oluştu: $e');
+    } finally {
+      if (mounted) setState(() => _isSending = false);
     }
+  }
+
+  void _showSnackBar(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final email = FirebaseAuth.instance.currentUser?.email ?? '';
+
     return Scaffold(
       appBar: AppBar(title: const Text('Şifre Değiştir')),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Card(
-            elevation: 4,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.lock_reset, size: 48, color: Colors.deepPurple),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'Şifreni sıfırlamak için e-posta adresine bir bağlantı gönderilecektir.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 16),
-                  ),
-                  const SizedBox(height: 24),
-                  ElevatedButton.icon(
-                    onPressed: () => _sendPasswordResetEmail(context),
-                    icon: const Icon(Icons.email),
-                    label: const Text('E-posta Gönder'),
-                    style: ElevatedButton.styleFrom(
-                      minimumSize: const Size.fromHeight(48),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+      body: ListView(
+        padding: const EdgeInsets.all(24),
+        children: [
+          const SizedBox(height: 24),
+          CircleAvatar(
+            radius: 36,
+            backgroundColor: theme.colorScheme.primaryContainer,
+            child: Icon(Icons.lock_reset, size: 36, color: theme.colorScheme.onPrimaryContainer),
           ),
-        ),
+          const SizedBox(height: 20),
+          Text(
+            'Şifreni sıfırlamak için e-posta adresine bir bağlantı gönderilecek.',
+            textAlign: TextAlign.center,
+            style: theme.textTheme.titleMedium,
+          ),
+          const SizedBox(height: 6),
+          Text(
+            email,
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+          ),
+          const SizedBox(height: 28),
+          FilledButton.icon(
+            onPressed: _isSending ? null : _sendPasswordResetEmail,
+            icon: const Icon(Icons.mail_outline),
+            label: Text(_isSending ? 'Gönderiliyor...' : 'E-posta Gönder'),
+          ),
+        ],
       ),
     );
   }

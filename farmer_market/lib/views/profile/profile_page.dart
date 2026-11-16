@@ -1,117 +1,117 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:provider/provider.dart';
 
-import '../auth/login_page.dart';
-import 'change_password_page.dart';
 import '../../core/theme/theme_provider.dart';
+import '../../core/utils/formatters.dart';
+import '../../models/app_user.dart';
+import 'change_password_page.dart';
 
 class ProfilePage extends StatelessWidget {
-  const ProfilePage({super.key});
+  final AppUser user;
 
-  Future<Map<String, dynamic>?> _getUserData() async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) return null;
+  const ProfilePage({super.key, required this.user});
 
-    final doc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
-    return doc.data();
+  Future<void> _signOut(BuildContext context) async {
+    final navigator = Navigator.of(context);
+    await FirebaseAuth.instance.signOut();
+    // Giriş ekranını AuthGate gösteriyor, üstteki sayfaları kapatmak yeterli
+    navigator.popUntil((route) => route.isFirst);
   }
 
   @override
   Widget build(BuildContext context) {
-    final user = FirebaseAuth.instance.currentUser;
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final themeProvider = context.watch<ThemeProvider>();
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Profilim'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.brightness_6),
-            tooltip: 'Temayı Değiştir',
-            onPressed: () {
-              Provider.of<ThemeProvider>(context, listen: false).toggleTheme();
-            },
+      appBar: AppBar(title: const Text('Profilim')),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+        children: [
+          const SizedBox(height: 8),
+          Center(
+            child: CircleAvatar(
+              radius: 44,
+              backgroundColor: scheme.primaryContainer,
+              child: Text(
+                initials(user.displayName),
+                style: theme.textTheme.headlineSmall?.copyWith(color: scheme.onPrimaryContainer),
+              ),
+            ),
           ),
-        ],
-      ),
-      body: FutureBuilder<Map<String, dynamic>?>(
-        future: _getUserData(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          if (!snapshot.hasData || snapshot.data == null) {
-            return const Center(child: Text('Kullanıcı verisi alınamadı.'));
-          }
-
-          final data = snapshot.data!;
-          final role = data['role'] == 'farmer' ? 'Üretici' : 'Tüketici';
-
-          return Padding(
-            padding: const EdgeInsets.all(24),
+          const SizedBox(height: 14),
+          Text(user.displayName, textAlign: TextAlign.center, style: theme.textTheme.titleLarge),
+          const SizedBox(height: 2),
+          Text(
+            user.email,
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+          ),
+          const SizedBox(height: 10),
+          Center(
+            child: Chip(
+              avatar: Icon(
+                user.isFarmer ? Icons.agriculture_outlined : Icons.shopping_basket_outlined,
+                size: 18,
+                color: scheme.onSecondaryContainer,
+              ),
+              label: Text(user.roleLabel),
+              backgroundColor: scheme.secondaryContainer,
+              side: BorderSide.none,
+            ),
+          ),
+          const SizedBox(height: 24),
+          if (user.isFarmer) ...[
+            Card(
+              child: Column(
+                children: [
+                  ListTile(
+                    leading: const Icon(Icons.phone_outlined),
+                    title: const Text('Telefon'),
+                    subtitle: Text(user.phone?.isNotEmpty == true ? user.phone! : '-'),
+                  ),
+                  const Divider(height: 1, indent: 16, endIndent: 16),
+                  ListTile(
+                    leading: const Icon(Icons.place_outlined),
+                    title: const Text('Konum'),
+                    subtitle: Text(user.location?.isNotEmpty == true ? user.location! : '-'),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
+          Card(
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                const SizedBox(height: 24),
-                CircleAvatar(
-                  radius: 48,
-                  backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-                  child: Icon(Icons.person, size: 48, color: Theme.of(context).colorScheme.onPrimaryContainer),
+                SwitchListTile(
+                  secondary: const Icon(Icons.dark_mode_outlined),
+                  title: const Text('Koyu tema'),
+                  value: themeProvider.isDark,
+                  onChanged: (_) => themeProvider.toggleTheme(),
                 ),
-                const SizedBox(height: 20),
-                Text(
-                  user?.email ?? '',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 8),
-                Chip(
-                  label: Text('Rol: $role'),
-                  backgroundColor: Theme.of(context).colorScheme.secondaryContainer,
-                ),
-                const SizedBox(height: 32),
-                Divider(thickness: 1.2, color: Theme.of(context).dividerColor),
-                const SizedBox(height: 16),
-                ElevatedButton.icon(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const ChangePasswordPage()),
-                    );
-                  },
-                  icon: const Icon(Icons.lock_reset),
-                  label: const Text('Şifreyi Değiştir'),
-                  style: ElevatedButton.styleFrom(
-                    minimumSize: const Size.fromHeight(48),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                const Divider(height: 1, indent: 16, endIndent: 16),
+                ListTile(
+                  leading: const Icon(Icons.lock_reset),
+                  title: const Text('Şifreyi Değiştir'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const ChangePasswordPage()),
                   ),
                 ),
-                const SizedBox(height: 16),
-                ElevatedButton.icon(
-                  onPressed: () async {
-                    await FirebaseAuth.instance.signOut();
-                    if (context.mounted) {
-                      Navigator.pushAndRemoveUntil(
-                        context,
-                        MaterialPageRoute(builder: (_) => const LoginPage()),
-                            (route) => false,
-                      );
-                    }
-                  },
-                  icon: const Icon(Icons.logout),
-                  label: const Text('Çıkış Yap'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.red,
-                    foregroundColor: Colors.white,
-                    minimumSize: const Size.fromHeight(48),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
+                const Divider(height: 1, indent: 16, endIndent: 16),
+                ListTile(
+                  leading: Icon(Icons.logout, color: scheme.error),
+                  title: Text('Çıkış Yap', style: TextStyle(color: scheme.error)),
+                  onTap: () => _signOut(context),
                 ),
               ],
             ),
-          );
-        },
+          ),
+        ],
       ),
     );
   }
