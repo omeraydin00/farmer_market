@@ -6,22 +6,37 @@ A mobile marketplace where farmers sell their produce directly to customers.
 
 Flutter · Firebase (Authentication, Firestore) · Provider
 
+<img alt="Farmer Market: from the field, straight to you" src="./assets/cover.jpg" />
+
+People sign up as a farmer or as a customer and see a different app for each. Customers browse the products in a grid, search them by name, sort them by price and open one to see its details, who grows it and where. The "Çiftçiyi Ara" button on that page starts a phone call to the farmer.
+
+<img alt="Sign up as a farmer or customer, a product and its farmer, adding a product and the dark theme" src="./assets/screens.jpg" />
+
+Farmers get a panel with only their own products, a short summary of their stock and a warning when a product drops below 20 kg. They add and edit products with a price per kilogram, stock in kilograms, a description, a phone number and a photo. Photos are not uploaded anywhere: the form takes an image URL, shows a preview, and the URL is saved with the product in Firestore.
+
+<img alt="The farmer's panel: stock warning, adding a product and the profile" src="./assets/farmer-panel.jpg" />
+
+The interface is in Turkish and has light and dark themes.
+
+<img alt="The same screen in the light and the dark theme" src="./assets/themes.jpg" />
+
+Firestore rules in `farmer_market/firestore.rules` make sure only the farmer who added a product can change or delete it.
+
+<img alt="The Firestore rules next to the farmer's product list" src="./assets/rules.jpg" />
+
+<details>
+<summary>Phone screenshots</summary>
+<br/>
 <p>
   <img width="32%" alt="Products" src="./screenshots/products.png" />
   <img width="32%" alt="Product detail" src="./screenshots/product-detail.png" />
   <img width="32%" alt="Farmer panel" src="./screenshots/farmer-panel.png" />
 </p>
-
-People sign up as a farmer or as a customer and see a different app for each. Customers browse the products in a grid, search them by name, sort them by price and open one to see its details, who grows it and where. The "Çiftçiyi Ara" button on that page starts a phone call to the farmer.
-
-Farmers get a panel with only their own products, a short summary of their stock and a warning when a product drops below 20 kg. They add and edit products with a price per kilogram, stock in kilograms, a description, a phone number and a photo. Photos are not uploaded anywhere: the form takes an image URL, shows a preview, and the URL is saved with the product in Firestore.
-
 <p>
   <img width="32%" alt="Login" src="./screenshots/login.png" />
   <img width="32%" alt="Add a product" src="./screenshots/add-product.png" />
 </p>
-
-The interface is in Turkish and has light and dark themes. Firestore rules in `farmer_market/firestore.rules` make sure only the farmer who added a product can change or delete it.
+</details>
 
 ## Running it
 
